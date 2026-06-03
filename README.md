@@ -27,6 +27,8 @@
 
 ## 📖 Overview
 
+<img width="688" height="720" alt="图片2" src="https://github.com/user-attachments/assets/c367bc0b-1b3f-4a9f-afb3-3c463e8b655c" />
+
 Large language models (LLMs) have demonstrated significant reasoning capabilities in scientific discovery but struggle to bridge the gap to physical execution in wet-labs. In these irreversible physical environments, probabilistic hallucinations are not merely incorrect, but can also cause catastrophic equipment damage or experimental failure.
 
 To address this critical execution gap, we propose **BioProAgent**, a training-free neuro-symbolic framework that anchors probabilistic planning in a deterministic Finite State Machine (FSM). This controller acts as a safety boundary, enforcing a rigorous "Design-Verify-Rectify" workflow to ensure reliable autonomy.
@@ -40,6 +42,9 @@ To address this critical execution gap, we propose **BioProAgent**, a training-f
 ### What BioProAgent does
 BioProAgent executes a deterministic-probabilistic loop:
 
+<img width="28089" height="11289" alt="architecture" src="https://github.com/user-attachments/assets/aac1cfbf-d277-4f92-9b19-0b9ffb0eda71" />
+
+
 1. **Design**: clarify intent, retrieve context, generate draft, align to automation, generate machine code.
 2. **Verify**: run scientific review (`K_s`) and physical/code checks (`K_p`).
 3. **Rectify**: repair draft/code when checks fail.
@@ -51,6 +56,9 @@ BioProAgent executes a deterministic-probabilistic loop:
   - `M_episodic` (trajectory records)
   - `M_long` (cross-session memory interface)
 - **Tool-oriented execution** with symbolic references (`$draft`, `$knowledge`, etc.).
+
+<img width="1280" height="562" alt="图片3" src="https://github.com/user-attachments/assets/b2cec41e-5e0f-4128-ba98-2bf938d2d672" />
+
 
 ---
 
