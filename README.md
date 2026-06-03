@@ -28,7 +28,7 @@
 ## 📖 Overview
 
 <div align="center">
-  <img src="https://github.com/user-attachments/assets/c367bc0b-1b3f-4a9f-afb3-3c463e8b655c" alt="图片2" width="300"/>
+  <img src="https://github.com/user-attachments/assets/c367bc0b-1b3f-4a9f-afb3-3c463e8b655c" alt="图片2" width="400"/>
 </div>
 
 
