@@ -290,6 +290,6 @@ If you find our work or the BioProSuite series helpful for your research, please
 @article{liu2025bioprobench,
   title={BioProBench: Comprehensive Dataset and Benchmark in Biological Protocol Understanding and Reasoning},
   author={Liu, Yuyang and Lv, Liuzhenghao and Zhang, Xiancheng and Yuan, Li and Tian, Yonghong},
-  journal={arXiv preprint arXiv:2505.07889},
-  year={2025}
+  journal={ICML},
+  year={2026}
 }
