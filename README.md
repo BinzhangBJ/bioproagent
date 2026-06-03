@@ -27,7 +27,10 @@
 
 ## 📖 Overview
 
-<img width="688" height="720" alt="图片2" src="https://github.com/user-attachments/assets/c367bc0b-1b3f-4a9f-afb3-3c463e8b655c" />
+<div align="center">
+  <img src="https://github.com/user-attachments/assets/c367bc0b-1b3f-4a9f-afb3-3c463e8b655c" alt="图片2" width="300"/>
+</div>
+
 
 Large language models (LLMs) have demonstrated significant reasoning capabilities in scientific discovery but struggle to bridge the gap to physical execution in wet-labs. In these irreversible physical environments, probabilistic hallucinations are not merely incorrect, but can also cause catastrophic equipment damage or experimental failure.
 
