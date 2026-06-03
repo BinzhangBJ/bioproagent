@@ -6,7 +6,7 @@
 
 > **🎉 News:**
 > * **[2026-04-21]** The implementation code is released!
-> * **[2026-04-05]** 🏆 **Accepted:** This work has been accepted by the **ACL 2026**!
+> * **[2026-04-05]** 🏆 **Accepted:** This work has been accepted by the **ACL 2026 Oral**!
 > * **[2026-03-18]** 🚀 **Live Demo:** BioProAgent is now officially deployed on the [AI4S LAB platform](https://ai4slab.pkusz.edu.cn/). You can experience the agent and order automated wet-lab experiments directly!
 > * **[2026-03-01]** 📄 **Preprint:** Our paper is available on [arXiv](https://arxiv.org/html/2603.00876v1).
 > * **[2026-02]** 🏆 **Accepted:** This work has been accepted by the [ICLR 2026 LLA Workshop](https://lifelongagent.github.io/)!
