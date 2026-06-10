@@ -2,6 +2,7 @@
 
 [![Webpage](https://img.shields.io/badge/Project-Webpage-blue.svg)](https://yuyangsunshine.github.io/BioPro-Project/) 
 [![Paper](https://img.shields.io/badge/Paper-arXiv:2603.00876-red.svg)](https://arxiv.org/abs/2603.00876)
+[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC_BY--NC_4.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Platform](https://img.shields.io/badge/Demo-AI4S_LAB-success.svg)](https://ai4slab.pkusz.edu.cn/)
 
 > **🎉 News:**
