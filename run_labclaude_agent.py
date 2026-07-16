@@ -12,9 +12,11 @@ Usage:
 
     # labclaude backend and OT-2 Deck Studio must already be running locally
     # (or set LABCLAUDE_BASE_URL/OT2_BASE_URL to point elsewhere), and you need
-    # a labclaude session token (POST /api/login) and an OT-2 API token
-    # (Deck Studio: 设置 → API 设置 → 访问令牌) — put them in keys.env too
-    # (LABCLAUDE_TOKEN / OT2_TOKEN).
+    # a labclaude session token (POST /api/login as the dedicated "bioproagent"
+    # service account — see comment in keys.env.example; do not log in as a
+    # human account, that would misattribute the workflow's provenance) and an
+    # OT-2 API token (Deck Studio: 设置 → API 设置 → 访问令牌) — put them in
+    # keys.env too (LABCLAUDE_TOKEN / OT2_TOKEN).
 
     python run_labclaude_agent.py --protocol-file my_protocol.txt \
         --exp-info "ELISA, 96-well plate, room temperature"
