@@ -76,7 +76,12 @@ labclaude half by labclaude's own IR compiler
 (``backend/app/workflow/ir.py::compile_workflow``, exposed read-only via
 ``POST /api/workflows/validate``). Both catch real structural/physical
 errors (unknown device_type/command, malformed steps, bad slot/well/labware
-references) instead of a schema-shape check alone.
+references) instead of a schema-shape check alone. A fourth check,
+``check_labware_known``, cross-references every ``layout.slots[*].load_name``
+against OT-2's live labware catalog (``GET /api/v1/labware``) before the
+simulation run — the simulator itself does not reject an unknown load_name
+(silent fallback, see that method's docstring), so without this check a
+hallucinated consumable name would only ever surface against a real robot.
 """
 
 from __future__ import annotations
@@ -176,6 +181,18 @@ def fetch_labware_catalog(ot2_base_url: str, token: str, timeout: float = 5.0) -
     r.raise_for_status()
     items = r.json()["data"]["labware"]
     return "\n".join(f"- {i['load_name']} ({i['category']})" for i in items)
+
+
+def fetch_labware_load_names(ot2_base_url: str, token: str, timeout: float = 5.0) -> set[str]:
+    """Same catalog as ``fetch_labware_catalog`` but as a set of bare
+    ``load_name`` strings, for validation (membership check) rather than
+    prompt text. Kept as a separate call (not derived from the string above)
+    so each has one obvious purpose."""
+    r = requests.get(f"{ot2_base_url.rstrip('/')}/api/v1/labware",
+                     headers={"Authorization": f"Bearer {token}"}, timeout=timeout)
+    r.raise_for_status()
+    items = r.json()["data"]["labware"]
+    return {i["load_name"] for i in items}
 
 
 # ---------------------------------------------------------------------
@@ -281,6 +298,12 @@ class LabclaudeOT2Validator:
         ``check_ot2_protocol_by_simulation`` undetected. This check closes
         that gap deterministically, without depending on ot2_engine
         internals.
+
+        Scope note: this only checks that referenced slots/mounts are
+        *declared*, not that a slot's ``load_name`` is a *real* labware
+        definition — that's ``check_labware_known`` (needs a network call
+        to OT-2's catalog, so it's kept separate from this network-free
+        check).
         """
         errors: list[str] = []
         slots = set((ot2.get("layout") or {}).get("slots", {}).keys())
@@ -298,6 +321,34 @@ class LabclaudeOT2Validator:
             if slot is not None and str(slot) not in slots:
                 errors.append(f"OT2StructureError: step {i} references undeclared slot "
                               f"{slot!r} (declared: {sorted(slots)})")
+        return errors
+
+    def check_labware_known(self, ot2: dict, cfg: OT2Config) -> list[str]:
+        """Every ``layout.slots[*].load_name`` must be a real entry in OT-2
+        Deck Studio's current labware catalog, not a string the LLM
+        hallucinated despite the prompt's "only use these" instruction.
+
+        Found by direct testing, not assumption: neither
+        ``check_ot2_protocol_structure`` nor the simulation run below
+        actually catches this. The simulator resolves an unknown load_name
+        by silently defaulting (e.g. column count falls back to 12 — see
+        ot2 repo's ``ot2_engine.py::_labware_cols``) instead of erroring, so
+        a typo'd or invented labware name sails through Design->Verify->
+        Rectify undetected and would only surface when a real robot's
+        ``loadLabware`` call rejects it — wasting real machine time to
+        discover a purely textual mistake. One cheap catalog GET here closes
+        that gap before the (much more expensive) full simulated run below.
+        """
+        try:
+            known = fetch_labware_load_names(cfg.base_url, cfg.token)
+        except requests.RequestException as e:
+            return [f"LabwareCatalogConnectionError: {e}"]
+        errors = []
+        for slot, info in (ot2.get("layout") or {}).get("slots", {}).items():
+            ln = info.get("load_name")
+            if ln and ln not in known:
+                errors.append(f"UnknownLabwareError: slot {slot} load_name {ln!r} not found "
+                              "in OT-2 labware catalog (GET /api/v1/labware)")
         return errors
 
     def check_ot2_protocol_by_simulation(self, ot2: dict, cfg: OT2Config) -> list[str]:
@@ -362,6 +413,11 @@ def validate_machine_code_labclaude_ot2(
     if structure_errors:
         violations = [RuleViolation("K_p", "halt", m) for m in structure_errors]
         return False, "; ".join(structure_errors), violations
+
+    labware_errors = _validator.check_labware_known(data["ot2_protocol"], ot2_cfg)
+    if labware_errors:
+        violations = [RuleViolation("K_p", "halt", m) for m in labware_errors]
+        return False, "; ".join(labware_errors), violations
 
     errors = _validator.check_labclaude_workflow(data["labclaude_workflow"], labclaude_cfg)
     errors += _validator.check_ot2_protocol_by_simulation(data["ot2_protocol"], ot2_cfg)
