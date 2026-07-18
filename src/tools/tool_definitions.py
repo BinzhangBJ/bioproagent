@@ -30,35 +30,29 @@ from src.capabilities.verification.engine import (
 from src.capabilities.automation.parameter_processing import parameter_builder
 from src.prompts.prompts import build_alignment_prompt, build_paint_prompt
 
-# labclaude + OT-2 Deck Studio target (see src/capabilities/targets/labclaude_ot2.py
-# module docstring for the full design rationale). Gated behind LABCLAUDE_OT2_TARGET
-# so the generic nodes/consumables/connections path (and the public eval harness that
-# depends on it) is completely untouched when this env var isn't set.
+# labclaude target (see src/capabilities/targets/labclaude_ot2.py module
+# docstring for the full design rationale, including why OT-2 isn't a
+# separate schema/dependency here). Gated behind LABCLAUDE_TARGET so the
+# generic nodes/consumables/connections path (and the public eval harness
+# that depends on it) is completely untouched when this env var isn't set.
 from src.capabilities.targets.labclaude_ot2 import (
     LabclaudeConfig,
-    OT2Config,
-    build_paint_prompt_labclaude_ot2,
+    build_paint_prompt_labclaude,
     fetch_device_catalog,
-    fetch_labware_catalog,
-    validate_machine_code_labclaude_ot2,
+    fetch_device_catalog_map,
+    validate_machine_code_labclaude,
 )
 
 
 def _labclaude_ot2_enabled() -> bool:
-    return os.environ.get("LABCLAUDE_OT2_TARGET", "").strip() not in ("", "0", "false", "False")
+    return os.environ.get("LABCLAUDE_TARGET", "").strip() not in ("", "0", "false", "False")
 
 
-def _labclaude_ot2_configs() -> tuple:
-    labclaude_cfg = LabclaudeConfig(
+def _labclaude_ot2_configs() -> LabclaudeConfig:
+    return LabclaudeConfig(
         base_url=os.environ.get("LABCLAUDE_BASE_URL", "http://127.0.0.1:8000"),
         token=os.environ.get("LABCLAUDE_TOKEN", ""),
     )
-    ot2_cfg = OT2Config(
-        base_url=os.environ.get("OT2_BASE_URL", "http://127.0.0.1:4180"),
-        token=os.environ.get("OT2_TOKEN", ""),
-        run_timeout_s=float(os.environ.get("OT2_RUN_TIMEOUT_S", "120")),
-    )
-    return labclaude_cfg, ot2_cfg
 
 
 _TOOL_DESCRIPTIONS_PATH = Path(__file__).with_name("tool_descriptions.json")
@@ -415,29 +409,25 @@ def generate_machine_code(aligned_protocol: str, exp_info: str = "", suggestion:
     print("--- Tool: Generate Machine Code ---")
 
     if _labclaude_ot2_enabled():
-        # labclaude/OT-2 target: our schema is already execution-ready (concrete
-        # OT-2 ops + labclaude Step IR), so there's no generic-graph "parameter
-        # population" stage to run afterward — the LLM's <exp_flow> output IS
-        # the machine code.
-        labclaude_cfg, ot2_cfg = _labclaude_ot2_configs()
+        # labclaude target: our schema is already execution-ready (labclaude's
+        # own Step IR — OT-2 pipetting is just ordinary steps in it, see
+        # labclaude_ot2.py module docstring), so there's no generic-graph
+        # "parameter population" stage to run afterward — the LLM's
+        # <exp_flow> output IS the machine code.
+        labclaude_cfg = _labclaude_ot2_configs()
         try:
             device_catalog = fetch_device_catalog(labclaude_cfg.base_url, labclaude_cfg.token)
         except Exception as e:
             device_catalog = f"(unavailable: {e})"
-        try:
-            labware_catalog = fetch_labware_catalog(ot2_cfg.base_url, ot2_cfg.token)
-        except Exception as e:
-            labware_catalog = f"(unavailable: {e})"
 
-        prompt = build_paint_prompt_labclaude_ot2(
+        prompt = build_paint_prompt_labclaude(
             protocol=aligned_protocol,
             exp_info=exp_info,
             suggestion=suggestion,
             device_catalog=device_catalog,
-            labware_catalog=labware_catalog,
         )
         raw_output = quality_llm.invoke(prompt).content.strip()
-        print("--- Machine Code Generation Completed (labclaude/OT-2 target) ---")
+        print("--- Machine Code Generation Completed (labclaude target) ---")
         if "<exp_flow>" in raw_output:
             return raw_output
         return f"<exp_flow>\n{raw_output}\n</exp_flow>"
@@ -501,27 +491,37 @@ def validate_machine_code(exp_flow_json: str) -> dict:
     print("--- Tool: Technical Validation ---")
 
     if _labclaude_ot2_enabled():
-        # K_p here is not a static rule table: it POSTs to labclaude's real IR
-        # compiler (/api/workflows/validate) and actually runs the OT-2 protocol
-        # to completion on OT-2 Deck Studio's simulation backend. See
-        # src/capabilities/targets/labclaude_ot2.py for what each check catches.
-        labclaude_cfg, ot2_cfg = _labclaude_ot2_configs()
-        is_valid, message, violations = validate_machine_code_labclaude_ot2(
-            exp_flow_json, labclaude_cfg, ot2_cfg)
+        # K_p here is a real structural check against labclaude's live device
+        # registry (id/dependency/cycle checks + device_type/command
+        # registration + OT-2 param-shape/fusion-chaining checks), run fully
+        # locally — see src/capabilities/targets/labclaude_ot2.py module
+        # docstring for why this doesn't round-trip through labclaude's API
+        # during the Rectify loop. The authoritative check (labclaude's own
+        # compile_workflow, server-side) happens once, at commit time.
+        labclaude_cfg = _labclaude_ot2_configs()
+        try:
+            device_catalog = fetch_device_catalog_map(labclaude_cfg.base_url, labclaude_cfg.token)
+        except Exception as e:
+            return {
+                "status": "fail",
+                "errors": [{"type": "TechnicalError", "code": "K_P_ERROR",
+                           "message": f"could not fetch labclaude device catalog: {e}"}],
+                "rule_violations": [],
+            }
+        is_valid, message, violations = validate_machine_code_labclaude(
+            exp_flow_json, device_catalog)
+        rule_violations = [{"rule_id": v.rule_id, "severity": v.severity, "message": v.message}
+                          for v in violations]
         if not is_valid:
             print(f"[Fail] {message}")
             return {
                 "status": "fail",
                 "errors": [{"type": "TechnicalError", "code": "K_P_ERROR", "message": message}],
-                "rule_violations": [
-                    {"rule_id": v.rule_id, "severity": v.severity, "message": v.message}
-                    for v in violations
-                ],
+                "rule_violations": rule_violations,
             }
         print(f"[Pass] {message}")
-        return {"status": "success", "errors": [], "rule_violations": [],
-                "summary": "labclaude workflow + OT-2 protocol validated "
-                          "(compiled by labclaude, run to completion in OT-2 sim)."}
+        return {"status": "success", "errors": [], "rule_violations": rule_violations,
+                "summary": message}
 
     is_valid, message, violations = validator_check(exp_flow_json, verbose=True, check_rules=True)
 

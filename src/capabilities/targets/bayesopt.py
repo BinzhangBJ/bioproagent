@@ -7,11 +7,11 @@ optimization roadmap (see labclaude's docs/optimization-roadmap.md — a
 different, unrelated kind of "optimization").
 
 Design choice, mirroring this package's ``labclaude_ot2.py`` and its
-``commit_machine_code_labclaude_ot2`` precedent (see that module's docstring
+``commit_machine_code_labclaude`` precedent (see that module's docstring
 for the full reasoning): this is deliberately **not** a new FSM ``@tool``.
 Adding one means a new planner state/transition in
 ``planner_transfer_matrix.py``, which can't be meaningfully exercised without
-live LLM credentials — same reason the labclaude/OT-2 "commit" step lives
+live LLM credentials — same reason the labclaude "commit" step lives
 outside the tool graph. Instead, BayesOpt is a **driving-script** step around
 the existing Design->Verify->Rectify loop, wired into ``run_labclaude_agent.py``
 via ``--bayesopt-study``:

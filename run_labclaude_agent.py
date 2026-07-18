@@ -1,4 +1,4 @@
-"""Headless CLI: turn a protocol into a labclaude workflow + OT-2 protocol.
+"""Headless CLI: turn a protocol into a labclaude workflow.
 
 There is no web UI for this (see the module docstring of
 ``src/capabilities/targets/labclaude_ot2.py`` for why: LLM credentials live
@@ -8,15 +8,14 @@ This script is the actual entry point until/unless a UI is built on top of it.
 Usage:
     cp data/keys.env.example data/keys.env
     # fill in MODEL_NAME / MODEL_API_KEY / MODEL_BASE_URL (e.g. DeepSeek — see
-    # comments in keys.env.example) and LABCLAUDE_OT2_TARGET=1 in keys.env
+    # comments in keys.env.example) and LABCLAUDE_TARGET=1 in keys.env
 
-    # labclaude backend and OT-2 Deck Studio must already be running locally
-    # (or set LABCLAUDE_BASE_URL/OT2_BASE_URL to point elsewhere), and you need
-    # a labclaude session token (POST /api/login as the dedicated "bioproagent"
-    # service account — see comment in keys.env.example; do not log in as a
-    # human account, that would misattribute the workflow's provenance) and an
-    # OT-2 API token (Deck Studio: 设置 → API 设置 → 访问令牌) — put them in
-    # keys.env too (LABCLAUDE_TOKEN / OT2_TOKEN).
+    # labclaude backend must already be running locally (or set
+    # LABCLAUDE_BASE_URL to point elsewhere), and you need a labclaude
+    # session token (POST /api/login as the dedicated "bioproagent" service
+    # account — see comment in keys.env.example; do not log in as a human
+    # account, that would misattribute the workflow's provenance) — put it in
+    # keys.env too (LABCLAUDE_TOKEN).
 
     python run_labclaude_agent.py --protocol-file my_protocol.txt \
         --exp-info "ELISA, 96-well plate, room temperature"
@@ -24,9 +23,15 @@ Usage:
 What it does: creates one ProAgent session, drives the existing
 Design→Verify→Rectify loop (align_draft_to_automation → generate_machine_code
 → validate_machine_code, retrying on failure) via a single ``process_query``
-call, then — only if validation actually passed — commits the result to the
-running labclaude + OT-2 Deck Studio instances. If it doesn't pass within the
-loop's retry budget, nothing is written and the last errors are printed.
+call. If validation didn't pass within the loop's retry budget, nothing is
+written and the last errors are printed. If it did pass, the generated
+workflow is rendered step-by-step and this script **stops and asks for
+explicit human confirmation** before committing anything to the running
+labclaude instance — passing structural validation is necessary but not
+sufficient; a person still reads the plan before it becomes real (see
+``_confirm_and_commit`` below). Pass ``--yes`` to skip the prompt for
+scripted/non-interactive use — only do that once you trust the pipeline,
+since it removes the human check this script exists to enforce.
 
 Optional: BayesOpt-suggested experiment parameters
 ---------------------------------------------------
@@ -114,6 +119,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--bayesopt-observe-objective", type=float,
                     help="measured objective value to report back (with "
                          "--bayesopt-observe-params)")
+    ap.add_argument("--yes", action="store_true",
+                    help="skip the human-confirmation prompt and commit automatically if "
+                         "validation passed. Only use this once you trust the pipeline — "
+                         "it removes the human review step this script exists to enforce.")
     args = ap.parse_args(argv)
 
     if args.bayesopt_observe_params or args.bayesopt_observe_objective is not None:
@@ -131,11 +140,11 @@ def main(argv: list[str] | None = None) -> int:
         with open(args.protocol_file, encoding="utf-8") as f:
             protocol_text = f.read()
 
-    if os.environ.get("LABCLAUDE_OT2_TARGET", "").strip() in ("", "0", "false", "False"):
-        print("LABCLAUDE_OT2_TARGET is not set (or is falsy) in your environment/keys.env — "
+    if os.environ.get("LABCLAUDE_TARGET", "").strip() in ("", "0", "false", "False"):
+        print("LABCLAUDE_TARGET is not set (or is falsy) in your environment/keys.env — "
               "the agent would use the generic nodes/consumables/connections schema instead "
               "of labclaude's, which is not what this script is for. Set "
-              "LABCLAUDE_OT2_TARGET=1 in data/keys.env and retry.", file=sys.stderr)
+              "LABCLAUDE_TARGET=1 in data/keys.env and retry.", file=sys.stderr)
         return 2
 
     exp_info = args.exp_info
@@ -167,7 +176,9 @@ def main(argv: list[str] | None = None) -> int:
     # config/settings.py at import time — no point paying that cost just to
     # print a usage error).
     from main_evaluate import ProAgent
-    from src.capabilities.targets.labclaude_ot2 import commit_machine_code_labclaude_ot2
+    from src.capabilities.targets.labclaude_ot2 import (
+        commit_machine_code_labclaude, extract_json, render_workflow_for_review,
+    )
     from src.tools.tool_definitions import _labclaude_ot2_configs
 
     agent = ProAgent(eval_mode=False)
@@ -192,9 +203,33 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(kp, indent=2, ensure_ascii=False))
         return 1
 
-    print("\n=== Validation passed. Committing to labclaude + OT-2 Deck Studio ===")
-    labclaude_cfg, ot2_cfg = _labclaude_ot2_configs()
-    result = commit_machine_code_labclaude_ot2(machine_code, labclaude_cfg, ot2_cfg)
+    print("\n=== Validation passed. Human review required before committing ===")
+    wf, err = extract_json(machine_code)
+    if err:
+        # Shouldn't happen — validation already parsed this successfully — but
+        # don't silently skip the review gate on a surprise, refuse instead.
+        print(f"Could not re-parse machine_code for review ({err}); refusing to commit "
+              "without a reviewable rendering.", file=sys.stderr)
+        return 1
+    print(render_workflow_for_review(wf))
+    if kp.get("rule_violations"):
+        warns = [v for v in kp["rule_violations"] if v.get("severity") == "warn"]
+        if warns:
+            print("\nWarnings (non-blocking, but read before approving):")
+            for v in warns:
+                print(f"  - {v['message']}")
+
+    if not args.yes:
+        answer = input("\nCommit this workflow to labclaude? [y/N] ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("Not committed (declined at human review).")
+            return 1
+    else:
+        print("\n--yes passed: skipping confirmation prompt.")
+
+    labclaude_cfg = _labclaude_ot2_configs()
+    result = commit_machine_code_labclaude(machine_code, labclaude_cfg)
+    print("\n=== Committed ===")
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
     if suggested_params is not None:
